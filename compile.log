@@ -1,0 +1,4 @@
+src/fly_mod_stanza_ack.erl:7:2: Warning: behaviour gen_mod undefined
+%    7| -behaviour(gen_mod).
+%     |  ^
+

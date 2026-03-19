@@ -1,0 +1,13 @@
+{application,stringprep,
+             [{description,"Fast Stringprep Erlang / Elixir implementation"},
+              {vsn,"1.0.33"},
+              {modules,[]},
+              {registered,[]},
+              {applications,[kernel,stdlib,p1_utils]},
+              {files,["src/","c_src/stringprep.cpp","c_src/uni_data.c",
+                      "c_src/uni_norm.c","configure","rebar.config",
+                      "rebar.config.script","vars.config.in","README.md",
+                      "LICENSE.txt","LICENCE.ALL","LICENSE.TCL"]},
+              {licenses,["Apache 2.0","Tcl/Tk"]},
+              {links,[{"Github",
+                       "https://github.com/processone/stringprep"}]}]}.

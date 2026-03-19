@@ -1,0 +1,320 @@
+m4trace:m4/ax_lib_sqlite3.m4:41: -1- AC_DEFUN([AX_LIB_SQLITE3], [
+    AC_ARG_WITH([sqlite3],
+        AS_HELP_STRING(
+            [--with-sqlite3=@<:@ARG@:>@],
+            [use SQLite 3 library @<:@default=yes@:>@, optionally specify the prefix for sqlite3 library]
+        ),
+        [
+        if test "$withval" = "no"; then
+            WANT_SQLITE3="no"
+        elif test "$withval" = "yes"; then
+            WANT_SQLITE3="yes"
+            ac_sqlite3_path=""
+        else
+            WANT_SQLITE3="yes"
+            ac_sqlite3_path="$withval"
+        fi
+        ],
+        [WANT_SQLITE3="yes"]
+    )
+
+    SQLITE3_CFLAGS=""
+    SQLITE3_LDFLAGS=""
+    SQLITE3_VERSION=""
+
+    if test "x$WANT_SQLITE3" = "xyes"; then
+
+        ac_sqlite3_header="sqlite3.h"
+
+        sqlite3_version_req=ifelse([$1], [], [3.0.0], [$1])
+        sqlite3_version_req_shorten=`expr $sqlite3_version_req : '\([[0-9]]*\.[[0-9]]*\)'`
+        sqlite3_version_req_major=`expr $sqlite3_version_req : '\([[0-9]]*\)'`
+        sqlite3_version_req_minor=`expr $sqlite3_version_req : '[[0-9]]*\.\([[0-9]]*\)'`
+        sqlite3_version_req_micro=`expr $sqlite3_version_req : '[[0-9]]*\.[[0-9]]*\.\([[0-9]]*\)'`
+        if test "x$sqlite3_version_req_micro" = "x" ; then
+            sqlite3_version_req_micro="0"
+        fi
+
+        sqlite3_version_req_number=`expr $sqlite3_version_req_major \* 1000000 \
+                                   \+ $sqlite3_version_req_minor \* 1000 \
+                                   \+ $sqlite3_version_req_micro`
+
+        AC_MSG_CHECKING([for SQLite3 library >= $sqlite3_version_req])
+
+        if test "$ac_sqlite3_path" != ""; then
+            ac_sqlite3_ldflags="-L$ac_sqlite3_path/lib"
+            ac_sqlite3_cppflags="-I$ac_sqlite3_path/include"
+        else
+            for ac_sqlite3_path_tmp in /usr /usr/local /opt ; do
+                if test -f "$ac_sqlite3_path_tmp/include/$ac_sqlite3_header" \
+                    && test -r "$ac_sqlite3_path_tmp/include/$ac_sqlite3_header"; then
+                    ac_sqlite3_path=$ac_sqlite3_path_tmp
+                    ac_sqlite3_cppflags="-I$ac_sqlite3_path_tmp/include"
+                    ac_sqlite3_ldflags="-L$ac_sqlite3_path_tmp/lib"
+                    break;
+                fi
+            done
+        fi
+
+        ac_sqlite3_ldflags="$ac_sqlite3_ldflags -lsqlite3"
+
+        saved_CPPFLAGS="$CPPFLAGS"
+        CPPFLAGS="$CPPFLAGS $ac_sqlite3_cppflags"
+
+        AC_LANG_PUSH(C)
+        AC_COMPILE_IFELSE(
+            [
+            AC_LANG_PROGRAM([[@%:@include <sqlite3.h>]],
+                [[
+#if (SQLITE_VERSION_NUMBER >= $sqlite3_version_req_number)
+/* Everything is okay */
+#else
+#  error SQLite version is too old
+#endif
+                ]]
+            )
+            ],
+            [
+            AC_MSG_RESULT([yes])
+            success="yes"
+            ],
+            [
+            AC_MSG_RESULT([not found])
+            success="no"
+            ]
+        )
+        AC_LANG_POP(C)
+
+        CPPFLAGS="$saved_CPPFLAGS"
+
+        if test "$success" = "yes"; then
+
+            SQLITE3_CFLAGS="$ac_sqlite3_cppflags"
+            SQLITE3_LDFLAGS="$ac_sqlite3_ldflags"
+
+            ac_sqlite3_header_path="$ac_sqlite3_path/include/$ac_sqlite3_header"
+
+            dnl Retrieve SQLite release version
+            if test "x$ac_sqlite3_header_path" != "x"; then
+                ac_sqlite3_version=`cat $ac_sqlite3_header_path \
+                    | grep '#define.*SQLITE_VERSION.*\"' | sed -e 's/.* "//' \
+                        | sed -e 's/"//'`
+                if test $ac_sqlite3_version != ""; then
+                    SQLITE3_VERSION=$ac_sqlite3_version
+                else
+                    AC_MSG_WARN([Cannot find SQLITE_VERSION macro in sqlite3.h header to retrieve SQLite version!])
+                fi
+            fi
+
+            AC_SUBST(SQLITE3_CFLAGS)
+            AC_SUBST(SQLITE3_LDFLAGS)
+            AC_SUBST(SQLITE3_VERSION)
+            AC_DEFINE([HAVE_SQLITE3], [], [Have the SQLITE3 library])
+        fi
+    fi
+])
+m4trace:m4/erlang-extra.m4:3: -1- AC_DEFUN([ERLANG_SUBST_LIB_VER], [AC_ERLANG_CHECK_LIB([$1])
+ERLANG_LIB_VER_SUBST="$ERLANG_LIB_VER_SUBST -e 's,[@]ERLANG_LIB_VER_$1[@],\$(ERLANG_LIB_VER_$1),g'"
+AC_SUBST([ERLANG_LIB_VER_SUBST])
+])
+m4trace:m4/erlang-extra.m4:9: -1- AC_DEFUN([ERLANG_VERSION_CHECK], [		AC_MSG_CHECKING([Erlang/OTP version])
+		cat > conftest.erl <<EOF
+-module(conftest).
+-export([[start/0]]).
+
+start() ->
+    ERTS = erlang:system_info(version),
+    RequiredMin = "$1",
+    RequiredMax = "$2",
+    Status =
+        case {string:tokens(RequiredMin, " "),
+              string:tokens(RequiredMax, " ")} of
+	    {[[MinStr | _]], [[MaxStr | _]]} ->
+                case check(ERTS, {MinStr, MaxStr}) of
+                    less ->
+                         list_to_binary([[ERTS, " found, ", RequiredMin, " required"]]);
+                    greater ->
+                         list_to_binary([[ERTS, " found, ", RequiredMax, " or earlier required"]]);
+                    ok ->
+	                 <<"ok">>
+                end;
+	    _ ->
+	        list_to_binary([[ERTS, " found, ", RequiredMin, " required"]])
+	end,
+    file:write_file("conftest.out", Status),
+    halt().
+
+check(CurStr, {MinStr, MaxStr}) ->
+    Cur = parse(CurStr),
+    Min = parse(MinStr),
+    Max = parse(MaxStr),
+    case {less_or_equal(Min, Cur), less_or_equal(Cur, Max)} of
+        {false, true} -> less;
+        {true, true} -> ok;
+        {true, false} -> greater
+    end.
+
+parse(Version) ->
+    lists:map(fun(A) -> {Int,[[]]} = string:to_integer(A), Int end,
+              string:tokens(Version, ".")).
+
+less_or_equal([[]], [[]]) ->
+    true;
+less_or_equal([[]], _Any) ->
+    true;
+less_or_equal(_Any, [[]]) ->
+    false;
+less_or_equal([[Left| Rl]], [[Right| Rr]]) ->
+    case {Left < Right, Left == Right} of
+        {true, _}  ->
+            true;
+        {false, false} ->
+            false;
+        {false, true} ->
+            less_or_equal(Rl, Rr)
+    end.
+
+EOF
+
+	$ERLC conftest.erl || AC_MSG_ERROR(["Could not compile Erlang/OTP version check program using '$ERLC'"])
+
+	if ! $ERL -s conftest -noshell -o ! -f conftest.out ; then
+	   AC_MSG_ERROR(["Could not run Erlang/OTP version check program using '$ERL'"])
+	fi
+
+	if test "x`cat conftest.out`" != "xok"; then
+	   AC_MSG_RESULT([failed])
+	   X="`cat conftest.out`"
+	   if test "[$3]" = "warn"; then
+	      AC_MSG_WARN([$X])
+	   else
+	      AC_MSG_FAILURE([$X])
+	   fi
+	else
+	   AC_MSG_RESULT([ok])
+	fi
+])
+m4trace:configure.ac:5: -1- m4_pattern_forbid([^_?A[CHUM]_])
+m4trace:configure.ac:5: -1- m4_pattern_forbid([_AC_])
+m4trace:configure.ac:5: -1- m4_pattern_forbid([^LIBOBJS$], [do not use LIBOBJS directly, use AC_LIBOBJ (see section 'AC_LIBOBJ vs LIBOBJS'])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^AS_FLAGS$])
+m4trace:configure.ac:5: -1- m4_pattern_forbid([^_?m4_])
+m4trace:configure.ac:5: -1- m4_pattern_forbid([^dnl$])
+m4trace:configure.ac:5: -1- m4_pattern_forbid([^_?AS_])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^SHELL$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PATH_SEPARATOR$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_NAME$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_TARNAME$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_VERSION$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_STRING$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_BUGREPORT$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_URL$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^exec_prefix$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^prefix$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^program_transform_name$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^bindir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^sbindir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^libexecdir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^datarootdir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^datadir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^sysconfdir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^sharedstatedir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^localstatedir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^runstatedir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^includedir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^oldincludedir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^docdir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^infodir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^htmldir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^dvidir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^pdfdir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^psdir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^libdir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^localedir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^mandir$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_NAME$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_TARNAME$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_VERSION$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_STRING$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_BUGREPORT$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^PACKAGE_URL$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^DEFS$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^ECHO_C$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^ECHO_N$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^ECHO_T$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^LIBS$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^build_alias$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^host_alias$])
+m4trace:configure.ac:5: -1- m4_pattern_allow([^target_alias$])
+m4trace:configure.ac:18: -1- AC_CONFIG_MACRO_DIR([m4])
+m4trace:configure.ac:18: -1- AC_CONFIG_MACRO_DIR_TRACE([m4])
+m4trace:configure.ac:21: -1- m4_pattern_allow([^SET_MAKE$])
+m4trace:configure.ac:22: -1- m4_pattern_allow([^AWK$])
+m4trace:configure.ac:23: -1- m4_pattern_allow([^INSTALL_PROGRAM$])
+m4trace:configure.ac:23: -1- m4_pattern_allow([^INSTALL_SCRIPT$])
+m4trace:configure.ac:23: -1- m4_pattern_allow([^INSTALL_DATA$])
+m4trace:configure.ac:24: -1- m4_pattern_allow([^MKDIR_P$])
+m4trace:configure.ac:25: -1- m4_pattern_allow([^SED$])
+m4trace:configure.ac:50: -1- m4_pattern_allow([^ERL$])
+m4trace:configure.ac:51: -1- m4_pattern_allow([^ERLC$])
+m4trace:configure.ac:52: -1- m4_pattern_allow([^EPMD$])
+m4trace:configure.ac:54: -1- m4_pattern_allow([^REBAR$])
+m4trace:configure.ac:55: -1- m4_pattern_allow([^REBAR3$])
+m4trace:configure.ac:56: -1- m4_pattern_allow([^ELIXIR$])
+m4trace:configure.ac:57: -1- m4_pattern_allow([^IEX$])
+m4trace:configure.ac:58: -1- m4_pattern_allow([^MIX$])
+m4trace:configure.ac:78: -1- m4_pattern_allow([^ERL$])
+m4trace:configure.ac:78: -1- m4_pattern_allow([^ERL$])
+m4trace:configure.ac:79: -1- m4_pattern_allow([^ERLC$])
+m4trace:configure.ac:79: -1- m4_pattern_allow([^ERLCFLAGS$])
+m4trace:configure.ac:79: -1- m4_pattern_allow([^ERLC$])
+m4trace:configure.ac:82: -1- m4_pattern_allow([^ERLANG_ROOT_DIR$])
+m4trace:configure.ac:86: -1- m4_pattern_allow([^ESCRIPT$])
+m4trace:configure.ac:89: -1- m4_pattern_allow([^MAKE$])
+m4trace:configure.ac:133: -1- ERLANG_VERSION_CHECK([$REQUIRE_ERLANG_MIN], [$REQUIRE_ERLANG_MAX])
+m4trace:configure.ac:136: -1- ERLANG_VERSION_CHECK([$REQUIRE_ERLANG_MIN], [$REQUIRE_ERLANG_MAX], [warn])
+m4trace:configure.ac:159: -1- m4_pattern_allow([^INSTALLGROUP$])
+m4trace:configure.ac:301: -1- m4_pattern_allow([^INSTALLUSER$])
+m4trace:configure.ac:318: -1- AX_LIB_SQLITE3([3.6.19])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^CC$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^CFLAGS$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^LDFLAGS$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^LIBS$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^CPPFLAGS$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^CC$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^CC$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^CC$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^CC$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^ac_ct_CC$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^CC$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^EXEEXT$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^OBJEXT$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^SQLITE3_CFLAGS$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^SQLITE3_LDFLAGS$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^SQLITE3_VERSION$])
+m4trace:configure.ac:318: -1- m4_pattern_allow([^HAVE_SQLITE3$])
+m4trace:configure.ac:328: -1- m4_pattern_allow([^roster_gateway_workaround$])
+m4trace:configure.ac:329: -1- m4_pattern_allow([^multihost_sql_schema$])
+m4trace:configure.ac:330: -1- m4_pattern_allow([^full_xml$])
+m4trace:configure.ac:331: -1- m4_pattern_allow([^odbc$])
+m4trace:configure.ac:332: -1- m4_pattern_allow([^mssql$])
+m4trace:configure.ac:333: -1- m4_pattern_allow([^mysql$])
+m4trace:configure.ac:334: -1- m4_pattern_allow([^pgsql$])
+m4trace:configure.ac:335: -1- m4_pattern_allow([^sqlite$])
+m4trace:configure.ac:336: -1- m4_pattern_allow([^pam$])
+m4trace:configure.ac:337: -1- m4_pattern_allow([^zlib$])
+m4trace:configure.ac:338: -1- m4_pattern_allow([^rebar$])
+m4trace:configure.ac:339: -1- m4_pattern_allow([^redis$])
+m4trace:configure.ac:340: -1- m4_pattern_allow([^elixir$])
+m4trace:configure.ac:341: -1- m4_pattern_allow([^stun$])
+m4trace:configure.ac:342: -1- m4_pattern_allow([^sip$])
+m4trace:configure.ac:343: -1- m4_pattern_allow([^debug$])
+m4trace:configure.ac:344: -1- m4_pattern_allow([^lua$])
+m4trace:configure.ac:345: -1- m4_pattern_allow([^tools$])
+m4trace:configure.ac:346: -1- m4_pattern_allow([^latest_deps$])
+m4trace:configure.ac:347: -1- m4_pattern_allow([^system_deps$])
+m4trace:configure.ac:348: -1- m4_pattern_allow([^CFLAGS$])
+m4trace:configure.ac:349: -1- m4_pattern_allow([^CPPFLAGS$])
+m4trace:configure.ac:350: -1- m4_pattern_allow([^LDFLAGS$])
+m4trace:configure.ac:352: -1- m4_pattern_allow([^LIB@&t@OBJS$])
+m4trace:configure.ac:352: -1- m4_pattern_allow([^LTLIBOBJS$])

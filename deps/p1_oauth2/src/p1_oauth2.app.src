@@ -1,0 +1,8 @@
+{application,p1_oauth2,
+             [{description,"Erlang OAuth 2.0 implementation"},
+              {vsn,"0.6.14"},
+              {registered,[]},
+              {applications,[kernel,stdlib]},
+              {env,[]},
+              {licenses,["MIT","Apache 2.0"]},
+              {links,[{"Github","https://github.com/processone/p1_oauth2"}]}]}.

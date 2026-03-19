@@ -1,0 +1,741 @@
+#.
+#' definitions
+#
+
+# Only required for Erlang/OTP 25
+MAYBE=ERL_FLAGS="-enable-feature maybe_expr"
+
+ESCRIPT = @ESCRIPT@
+REBAR = $(MAYBE) @rebar@ # rebar|rebar3|mix binary (or path to binary)
+REBAR3 = @REBAR3@ # path to rebar3 binary
+MIX = @rebar@
+AWK = @AWK@
+INSTALL = @INSTALL@
+MKDIR_P = @MKDIR_P@
+SED = @SED@
+ERL = @ERL@
+EPMD = @EPMD@
+IEX = @IEX@
+
+INSTALLUSER=@INSTALLUSER@
+INSTALLGROUP=@INSTALLGROUP@
+
+REBAR_ENABLE_ELIXIR = @elixir@
+
+prefix = @prefix@
+exec_prefix = @exec_prefix@
+
+DESTDIR =
+
+# /etc/ejabberd/
+ETCDIR = @sysconfdir@/ejabberd
+
+# /bin/
+BINDIR = @bindir@
+
+# /sbin/
+SBINDIR = @sbindir@
+
+# /lib/
+LIBDIR =  @libdir@
+
+# /lib/ejabberd/
+EJABBERDDIR = @libdir@/ejabberd
+
+# /share/doc/ejabberd
+PACKAGE_TARNAME = @PACKAGE_TARNAME@
+datarootdir = @datarootdir@
+DOCDIR = @docdir@
+
+# /share/doc/man/man5
+MANDIR = @mandir@/man5
+
+# /usr/lib/ejabberd/ebin/
+BEAMDIR = $(EJABBERDDIR)/ebin
+
+# /usr/lib/ejabberd/include/
+INCLUDEDIR = $(EJABBERDDIR)/include
+
+# /usr/lib/ejabberd/priv/
+PRIVDIR = $(EJABBERDDIR)/priv
+
+# /usr/lib/ejabberd/priv/bin
+PBINDIR = $(PRIVDIR)/bin
+
+# /usr/lib/ejabberd/priv/lib
+SODIR = $(PRIVDIR)/lib
+
+# /usr/lib/ejabberd/priv/msgs
+MSGSDIR = $(PRIVDIR)/msgs
+
+# /usr/lib/ejabberd/priv/css
+CSSDIR = $(PRIVDIR)/css
+
+# /usr/lib/ejabberd/priv/img
+IMGDIR = $(PRIVDIR)/img
+
+# /usr/lib/ejabberd/priv/js
+JSDIR = $(PRIVDIR)/js
+
+# /usr/lib/ejabberd/priv/sql
+SQLDIR = $(PRIVDIR)/sql
+
+# /usr/lib/ejabberd/priv/lua
+LUADIR = $(PRIVDIR)/lua
+
+# /var/lib/ejabberd/
+SPOOLDIR = @localstatedir@/lib/ejabberd
+
+# /var/log/ejabberd/
+LOGDIR = @localstatedir@/log/ejabberd
+
+#.
+#' install user
+#
+
+# if no user was enabled, don't set privileges or ownership
+ifeq ($(INSTALLUSER),)
+  O_USER=
+  G_USER=
+  CHOWN_COMMAND=echo
+  CHOWN_OUTPUT=/dev/null
+  INIT_USER=root
+else
+  O_USER=-o $(INSTALLUSER)
+  G_USER=-g $(INSTALLUSER)
+  CHOWN_COMMAND=chown
+  CHOWN_OUTPUT=&1
+  INIT_USER=$(INSTALLUSER)
+endif
+
+# if no group was enabled, don't set privileges or ownership
+ifneq ($(INSTALLGROUP),)
+  G_USER=-g $(INSTALLGROUP)
+endif
+
+#.
+#' rebar / rebar3 / mix
+#
+
+ifeq "$(notdir $(MIX))" "mix"
+REBAR_VER:=6
+REBAR_VER_318:=0
+else
+REBAR_VER:=$(shell $(REBAR) --version | $(AWK) -F '[ .]' '/rebar / {print $$2}')
+REBAR_VER_318:=$(shell $(REBAR) --version | $(AWK) -F '[ .]' '/rebar / {print ($$2 == 3 && $$3 >= 18 ? 1 : 0)}')
+endif
+
+ifeq "$(REBAR_VER)" "6"
+  REBAR=$(MAYBE) $(MIX)
+  SKIPDEPS=
+  LISTDEPS=deps.tree
+  UPDATEDEPS=deps.update
+  DEPSPATTERN="s/.*─ \([a-z0-9_]*\) .*/\1/p;"
+  DEPSBASE=_build
+  DEPSDIR=$(DEPSBASE)/dev/lib
+  GET_DEPS= deps.get
+  CONFIGURE_DEPS=(cd deps/eimp; ./configure)
+  EBINDIR=$(DEPSDIR)/ejabberd/ebin
+  XREFOPTIONS=graph
+  EDOCPRE=MIX_ENV=edoc
+  EDOCTASK=docs --proglang erlang
+  CLEANARG=--deps
+  ELIXIR_LIBDIR_RAW=$(shell elixir -e "IO.puts(:filename.dirname(:code.lib_dir(:elixir)))" -e ":erlang.halt")
+  ELIXIR_LIBDIR=":$(ELIXIR_LIBDIR_RAW)"
+  REBARREL=MIX_ENV=prod $(REBAR) release --overwrite
+  REBARDEV=MIX_ENV=dev $(REBAR) release --overwrite
+  RELIVECMD=$(ESCRIPT) rel/relive.escript && MIX_ENV=dev RELIVE=true $(MAYBE) $(IEX) --name ejabberd@localhost -S mix run
+  RELIVECTLCMD=$(ESCRIPT) rel/relive.escript ctl && _build/relivectl/ejabberdctl live
+  REL_LIB_DIR = _build/dev/rel/ejabberd/lib
+  COPY_REL_TARGET = dev
+  GET_DEPS_TRANSLATIONS=MIX_ENV=translations $(REBAR) $(GET_DEPS)
+  DEPSDIR_TRANSLATIONS=deps
+else
+ifeq ($(REBAR_ENABLE_ELIXIR),true)
+  ELIXIR_LIBDIR_RAW=$(shell elixir -e "IO.puts(:filename.dirname(:code.lib_dir(:elixir)))" -e ":erlang.halt")
+  ELIXIR_LIBDIR=":$(ELIXIR_LIBDIR_RAW)"
+  EXPLICIT_ELIXIR_COMPILE=MIX_ENV=default mix compile.elixir
+  EXPLICIT_ELIXIR_COMPILE_DEV=MIX_ENV=dev mix compile.elixir
+  PREPARE_ELIXIR_SCRIPTS=$(MKDIR_P) rel/overlays; cp $(ELIXIR_LIBDIR_RAW)/../bin/iex rel/overlays/; cp $(ELIXIR_LIBDIR_RAW)/../bin/elixir rel/overlays/; sed -i 's|ERTS_BIN=$$|ERTS_BIN=$$SCRIPT_PATH/../../erts-{{erts_vsn}}/bin/|' rel/overlays/elixir
+endif
+ifeq "$(REBAR_VER)" "3"
+  SKIPDEPS=
+  LISTDEPS=tree
+ifeq "$(REBAR_VER_318)" "1"
+  UPDATEDEPS=upgrade --all
+else
+  UPDATEDEPS=upgrade
+endif
+  DEPSPATTERN="s/ (.*//; /^ / s/.* \([a-z0-9_]*\).*/\1/p;"
+  DEPSBASE=_build
+  DEPSDIR=$(DEPSBASE)/default/lib
+  GET_DEPS= get-deps
+  CONFIGURE_DEPS=sh -c 'for d in $$(find _build/default/lib -maxdepth 1 -type d); do if [ -f $$$$d/configure ]; then (cd $$$$d && ./configure); fi; done'
+  EBINDIR=$(DEPSDIR)/ejabberd/ebin
+  XREFOPTIONS=
+  CLEANARG=--all
+  REBARREL=$(REBAR) as prod tar
+  REBARDEV=$(REBAR) as dev release
+  RELIVECMD=$(REBAR) as dev relive
+  RELIVECTLCMD=$(ESCRIPT) rel/relive.escript ctl && _build/relivectl/ejabberdctl live
+  REL_LIB_DIR = _build/dev/rel/ejabberd/lib
+  COPY_REL_TARGET = dev
+  GET_DEPS_TRANSLATIONS=$(REBAR) as translations $(GET_DEPS)
+  DEPSDIR_TRANSLATIONS=_build/translations/lib
+else
+  SKIPDEPS=skip_deps=true
+  LISTDEPS=-q list-deps
+  UPDATEDEPS=update-deps
+  DEPSPATTERN="/ TAG / s/ .*// p; / REV / s/ .*// p; / BRANCH / s/ .*// p;"
+  DEPSBASE=deps
+  DEPSDIR=$(DEPSBASE)
+  GET_DEPS= get-deps
+  CONFIGURE_DEPS=sh -c 'for d in $$(find deps -maxdepth 1 -type d); do if [ -f $$$$d/configure ]; then (cd $$$$d && ./configure); fi; done'
+  EBINDIR=ebin
+  XREFOPTIONS=
+  CLEANARG=
+  REBARREL=$(REBAR) generate
+  REBARDEV=@echo "Rebar2 detected... dev not supported.\
+	   \nTry: make prod, or: ./configure --with-rebar=rebar3 ; make dev"
+  RELIVECMD=@echo "Rebar2 detected... relive not supported.\
+	   \nTry: ./configure --with-rebar=rebar3 ; make relive"
+  RELIVECTLCMD=@echo "Rebar2 detected... relivectl not supported.\
+	   \nTry: ./configure --with-rebar=rebar3 ; make relivectl"
+  REL_LIB_DIR = rel/ejabberd/lib
+  COPY_REL_TARGET = rel
+endif
+endif
+
+#.
+#' main targets
+#
+
+all: scripts deps src
+
+deps: $(DEPSDIR)/.got
+
+$(DEPSDIR)/.got:
+	rm -rf $(DEPSDIR)/.got
+	rm -rf $(DEPSDIR)/.built
+	$(MKDIR_P) $(DEPSDIR)
+	$(REBAR) $(GET_DEPS) && :> $(DEPSDIR)/.got
+	$(CONFIGURE_DEPS)
+
+$(DEPSDIR)/.built: $(DEPSDIR)/.got
+	$(REBAR) compile && :> $(DEPSDIR)/.built
+
+src: $(DEPSDIR)/.built
+	$(REBAR) $(SKIPDEPS) compile
+	$(EXPLICIT_ELIXIR_COMPILE)
+
+update:
+	rm -rf $(DEPSDIR)/.got
+	rm -rf $(DEPSDIR)/.built
+	$(REBAR) $(UPDATEDEPS) && :> $(DEPSDIR)/.got
+	$(CONFIGURE_DEPS)
+
+xref: all
+	$(REBAR) $(SKIPDEPS) xref $(XREFOPTIONS)
+
+hooks: all
+	tools/hook_deps.sh $(EBINDIR)
+
+options: all
+	tools/opt_types.sh ejabberd_option $(EBINDIR)
+
+translations:
+	$(GET_DEPS_TRANSLATIONS)
+	tools/prepare-tr.sh $(DEPSDIR_TRANSLATIONS)
+
+doap:
+	tools/generate-doap.sh
+
+#.
+#' edoc
+#
+
+edoc: edoc_files edoc_compile
+	$(EDOCPRE) $(REBAR) $(EDOCTASK)
+
+edoc_compile: deps
+	$(EDOCPRE) $(REBAR) compile
+
+edoc_files: _build/edoc/docs.md _build/edoc/logo.png
+
+_build/edoc/docs.md: edoc_compile
+	echo "For much more detailed and complete ejabberd documentation, " \
+	     "go to the [ejabberd Docs](https://docs.ejabberd.im/) site." \
+	     > _build/edoc/docs.md
+
+_build/edoc/logo.png: edoc_compile
+	wget https://docs.ejabberd.im/assets/img/footer_logo_e.png -O _build/edoc/logo.png
+
+#.
+#' format / indent
+#
+
+format:
+	tools/rebar3-format.sh $(REBAR3)
+
+indent:
+	tools/emacs-indent.sh
+
+#.
+#' copy-files
+#
+
+JOIN_PATHS=$(if $(wordlist 2,1000,$(1)),$(firstword $(1))/$(call JOIN_PATHS,$(wordlist 2,1000,$(1))),$(1))
+
+VERSIONED_DEP=$(if $(DEP_$(1)_VERSION),$(DEP_$(1)_VERSION),$(1))
+
+DEPIX:=$(words $(subst /, ,$(DEPSDIR)))
+LIBIX:=$(shell expr "$(DEPIX)" + 2)
+
+ELIXIR_TO_DEST=$(LIBDIR) $(call VERSIONED_DEP,$(word 2,$(1))) $(wordlist 5,1000,$(1))
+DEPS_TO_DEST=$(LIBDIR) $(call VERSIONED_DEP,$(word 2,$(1))) $(wordlist 3,1000,$(1))
+MAIN_TO_DEST=$(LIBDIR) $(call VERSIONED_DEP,ejabberd) $(1)
+TO_DEST_SINGLE=$(if $(subst X$(DEPSBASE)X,,X$(word 1,$(1))X),$(call MAIN_TO_DEST,$(1)),$(if $(subst XlibX,,X$(word $(LIBIX),$(1))X),$(call DEPS_TO_DEST,$(wordlist $(DEPIX),1000,$(1))),$(call ELIXIR_TO_DEST,$(wordlist $(DEPIX),1000,$(1)))))
+TO_DEST=$(foreach path,$(1),$(call JOIN_PATHS,$(DESTDIR)$(call TO_DEST_SINGLE,$(subst /, ,$(path)))))
+
+FILTER_DIRS=$(foreach path,$(1),$(if $(wildcard $(path)/*),,$(path)))
+FILES_WILDCARD=$(call FILTER_DIRS,$(foreach w,$(1),$(wildcard $(w))))
+
+ifeq ($(MAKECMDGOALS),copy-files-sub)
+
+DEPS:=$(sort $(shell QUIET=1 $(REBAR) $(LISTDEPS) | $(SED) -ne $(DEPSPATTERN) ))
+
+DEPS_FILES=$(call FILES_WILDCARD,$(foreach DEP,$(DEPS),$(DEPSDIR)/$(DEP)/ebin/*.beam $(DEPSDIR)/$(DEP)/ebin/*.app $(DEPSDIR)/$(DEP)/priv/* $(DEPSDIR)/$(DEP)/priv/lib/* $(DEPSDIR)/$(DEP)/priv/bin/* $(DEPSDIR)/$(DEP)/include/*.hrl $(DEPSDIR)/$(DEP)/COPY* $(DEPSDIR)/$(DEP)/LICENSE* $(DEPSDIR)/$(DEP)/lib/*/ebin/*.beam $(DEPSDIR)/$(DEP)/lib/*/ebin/*.app))
+
+BINARIES=$(DEPSDIR)/epam/priv/bin/epam $(DEPSDIR)/eimp/priv/bin/eimp $(DEPSDIR)/fs/priv/mac_listener
+
+DEPS_FILES_FILTERED=$(filter-out $(BINARIES) $(DEPSDIR)/elixir/ebin/elixir.app,$(DEPS_FILES))
+DEPS_DIRS=$(sort $(DEPSDIR)/ $(foreach DEP,$(DEPS),$(DEPSDIR)/$(DEP)/) $(dir $(DEPS_FILES)))
+
+MAIN_FILES=$(filter-out %/configure.beam,$(call FILES_WILDCARD,$(EBINDIR)/*.beam $(EBINDIR)/*.app priv/msgs/*.msg priv/css/*.css priv/img/*.png priv/js/*.js priv/lib/* include/*.hrl COPYING))
+MAIN_DIRS=$(sort $(dir $(MAIN_FILES)) priv/bin priv/sql priv/lua)
+
+define DEP_VERSION_template
+DEP_$(1)_VERSION:=$(shell $(SED) -e '/vsn/!d;s/.*, *"/$(1)-/;s/".*//' $(2) 2>/dev/null)
+endef
+
+DELETE_TARGET_SO=$(if $(subst X.soX,,X$(suffix $(1))X),,rm -f $(call TO_DEST,$(1));)
+
+$(foreach DEP,$(DEPS),$(eval $(call DEP_VERSION_template,$(DEP),$(DEPSDIR)/$(DEP)/ebin/$(DEP).app)))
+$(eval $(call DEP_VERSION_template,ejabberd,$(EBINDIR)/ejabberd.app))
+
+define COPY_template
+$(call TO_DEST,$(1)): $(1) $(call TO_DEST,$(dir $(1))) ; $(call DELETE_TARGET_SO, $(1)) $$(INSTALL) -m 644 $(1) $(call TO_DEST,$(1))
+endef
+
+define COPY_BINARY_template
+$(call TO_DEST,$(1)): $(1) $(call TO_DEST,$(dir $(1))) ; rm -f $(call TO_DEST,$(1)); $$(INSTALL) -m 755 $$(O_USER) $(1) $(call TO_DEST,$(1))
+endef
+
+$(foreach file,$(DEPS_FILES_FILTERED) $(MAIN_FILES),$(eval $(call COPY_template,$(file))))
+
+$(foreach file,$(BINARIES),$(eval $(call COPY_BINARY_template,$(file))))
+
+$(sort $(call TO_DEST,$(MAIN_DIRS) $(DEPS_DIRS))):
+		$(INSTALL) -d $@
+
+$(call TO_DEST,priv/sql/lite.sql): sql/lite.sql $(call TO_DEST,priv/sql)
+	$(INSTALL) -m 644 $< $@
+
+$(call TO_DEST,priv/sql/lite.new.sql): sql/lite.new.sql $(call TO_DEST,priv/sql)
+	$(INSTALL) -m 644 $< $@
+
+$(call TO_DEST,priv/bin/captcha.sh): tools/captcha.sh $(call TO_DEST,priv/bin)
+	$(INSTALL) -m 755 $(O_USER) $< $@
+
+$(call TO_DEST,priv/lua/redis_sm.lua): priv/lua/redis_sm.lua $(call TO_DEST,priv/lua)
+	$(INSTALL) -m 644 $< $@
+
+ifeq (@sqlite@,true)
+SQLITE_FILES = priv/sql/lite.sql priv/sql/lite.new.sql
+endif
+
+ifeq (@redis@,true)
+REDIS_FILES = priv/lua/redis_sm.lua
+endif
+
+copy-files-sub2: $(call TO_DEST,$(DEPS_FILES) $(MAIN_FILES) priv/bin/captcha.sh $(SQLITE_FILES) $(REDIS_FILES))
+
+.PHONY: $(call TO_DEST,$(DEPS_FILES) $(MAIN_DIRS) $(DEPS_DIRS))
+
+endif
+
+copy-files:
+	$(MAKE) copy-files-sub
+
+copy-files-sub: copy-files-sub2
+
+#.
+#' copy-files-rel
+#
+
+copy-files-rel: $(COPY_REL_TARGET)
+	#
+	# Libraries
+	(cd $(REL_LIB_DIR) && find . -follow -type f ! -executable -exec $(INSTALL) -vDm 640 $(G_USER) {} $(DESTDIR)$(LIBDIR)/{} \;)
+	#
+	# *.so:
+	(cd $(REL_LIB_DIR) && find . -follow -type f -executable -name *.so -exec $(INSTALL) -vDm 640 $(G_USER) {} $(DESTDIR)$(LIBDIR)/{} \;)
+	#
+	# Executable files
+	(cd $(REL_LIB_DIR) && find . -follow -type f -executable ! -name *.so -exec $(INSTALL) -vDm 550 $(G_USER) {} $(DESTDIR)$(LIBDIR)/{} \;)
+
+#.
+#' uninstall-librel
+#
+
+uninstall-librel:
+	(cd $(REL_LIB_DIR) && find . -follow -type f -exec rm -fv -v $(DESTDIR)$(LIBDIR)/{} \;)
+	(cd $(REL_LIB_DIR) && find . -follow -depth -type d -exec rm -dv -v $(DESTDIR)$(LIBDIR)/{} \;)
+
+#.
+#' relive
+#
+
+relive:
+	$(EXPLICIT_ELIXIR_COMPILE_DEV)
+	$(RELIVECMD)
+
+relivectl:
+	$(EXPLICIT_ELIXIR_COMPILE_DEV)
+	$(RELIVECTLCMD)
+
+relivelibdir=$(shell pwd)/$(DEPSDIR)
+relivebase=$(shell pwd)/$(DEPSBASE)
+
+#.
+#' scripts
+#
+
+# Used for ejabberdctl.relive and ejabberdctl.relivectl
+ejabberdctl.re%:
+	$(SED)  -e "s*{{installuser}}*${INSTALLUSER}*g" \
+		-e "s*{{config_dir}}*${relivebase}/re${*}/conf*g" \
+		-e "s*{{logs_dir}}*${relivebase}/re${*}/logs*g" \
+		-e "s*{{spool_dir}}*${relivebase}/re${*}/database*g" \
+		-e "s*{{bindir}}*${BINDIR}*g" \
+		-e "s*{{libdir}}*${relivelibdir}${ELIXIR_LIBDIR}*g" \
+		-e "s*ERTS_VSN*# ERTS_VSN*g" \
+		-e "s*{{iexpath}}*${IEX}*g" \
+		-e "s*{{erl}}*${ERL}*g" \
+		-e "s*{{epmd}}*${EPMD}*g" ejabberdctl.template \
+		> ejabberdctl.re${*}
+
+ejabberd.init:
+	$(SED) -e "s*@ctlscriptpath@*$(SBINDIR)*g" \
+		-e "s*@installuser@*$(INIT_USER)*g" ejabberd.init.template \
+		> ejabberd.init
+	chmod 755 ejabberd.init
+
+ejabberd.service:
+	$(SED) -e "s*@ctlscriptpath@*$(SBINDIR)*g" \
+		-e "s*@installuser@*$(INIT_USER)*g" ejabberd.service.template \
+		> ejabberd.service
+	chmod 644 ejabberd.service
+
+ejabberdctl.example: vars.config
+	$(SED)  -e "s*{{installuser}}*${INSTALLUSER}*g" \
+		-e "s*{{config_dir}}*${ETCDIR}*g" \
+		-e "s*{{logs_dir}}*${LOGDIR}*g" \
+		-e "s*{{spool_dir}}*${SPOOLDIR}*g" \
+		-e "s*{{bindir}}*${BINDIR}*g" \
+		-e "s*{{libdir}}*${LIBDIR}${ELIXIR_LIBDIR}*g" \
+		-e "s*ERTS_VSN*# ERTS_VSN*g" \
+		-e "s*{{iexpath}}*${IEX}*g" \
+		-e "s*{{erl}}*${ERL}*g" \
+		-e "s*{{epmd}}*${EPMD}*g" ejabberdctl.template \
+		> ejabberdctl.example
+
+scripts: ejabberd.init ejabberd.service ejabberdctl.example
+
+#.
+#' install
+#
+
+install: copy-files install-main
+
+install-rel: copy-files-rel install-main
+
+install-main:
+	#
+	# Configuration files
+	$(INSTALL) -d -m 750 $(G_USER) $(DESTDIR)$(ETCDIR)
+	[ -f $(DESTDIR)$(ETCDIR)/ejabberd.yml ] \
+		&& $(INSTALL) -b -m 640 $(G_USER) ejabberd.yml.example $(DESTDIR)$(ETCDIR)/ejabberd.yml-new \
+		|| $(INSTALL) -b -m 640 $(G_USER) ejabberd.yml.example $(DESTDIR)$(ETCDIR)/ejabberd.yml
+	[ -f $(DESTDIR)$(ETCDIR)/ejabberdctl.cfg ] \
+		&& $(INSTALL) -b -m 640 $(G_USER) ejabberdctl.cfg.example $(DESTDIR)$(ETCDIR)/ejabberdctl.cfg-new \
+		|| $(INSTALL) -b -m 640 $(G_USER) ejabberdctl.cfg.example $(DESTDIR)$(ETCDIR)/ejabberdctl.cfg
+	$(INSTALL) -b -m 644 $(G_USER) inetrc $(DESTDIR)$(ETCDIR)/inetrc
+	#
+	# Administration script
+	[ -d $(DESTDIR)$(SBINDIR) ] || $(INSTALL) -d -m 755 $(DESTDIR)$(SBINDIR)
+	$(INSTALL) -m 550 $(G_USER) ejabberdctl.example $(DESTDIR)$(SBINDIR)/ejabberdctl
+	# Elixir binaries
+	[ -d $(DESTDIR)$(BINDIR) ] || $(INSTALL) -d -m 755 $(DESTDIR)$(BINDIR)
+	[ -f $(DEPSDIR)/elixir/bin/iex ] && $(INSTALL) -m 550 $(G_USER) $(DEPSDIR)/elixir/bin/iex $(DESTDIR)$(BINDIR)/iex || true
+	[ -f $(DEPSDIR)/elixir/bin/elixir ] && $(INSTALL) -m 550 $(G_USER) $(DEPSDIR)/elixir/bin/elixir $(DESTDIR)$(BINDIR)/elixir || true
+	[ -f $(DEPSDIR)/elixir/bin/mix ] && $(INSTALL) -m 550 $(G_USER) $(DEPSDIR)/elixir/bin/mix $(DESTDIR)$(BINDIR)/mix || true
+	#
+	# Spool directory
+	$(INSTALL) -d -m 750 $(O_USER) $(DESTDIR)$(SPOOLDIR)
+	$(CHOWN_COMMAND) -R $(INSTALLUSER) $(DESTDIR)$(SPOOLDIR) >$(CHOWN_OUTPUT)
+	chmod -R 750 $(DESTDIR)$(SPOOLDIR)
+	#
+	# Log directory
+	$(INSTALL) -d -m 750 $(O_USER) $(DESTDIR)$(LOGDIR)
+	$(CHOWN_COMMAND) -R $(INSTALLUSER) $(DESTDIR)$(LOGDIR) >$(CHOWN_OUTPUT)
+	chmod -R 750 $(DESTDIR)$(LOGDIR)
+	#
+	# Documentation
+	$(INSTALL) -d $(DESTDIR)$(MANDIR)
+	$(INSTALL) -d $(DESTDIR)$(DOCDIR)
+	[ -f man/ejabberd.yml.5 ] \
+		&& $(INSTALL) -m 644 man/ejabberd.yml.5 $(DESTDIR)$(MANDIR) \
+		|| echo "Man page not included in sources"
+	$(INSTALL) -m 644 COPYING $(DESTDIR)$(DOCDIR)
+
+#.
+#' uninstall
+#
+
+uninstall: uninstall-binary
+
+uninstall-rel: uninstall-binary uninstall-librel
+
+uninstall-binary:
+	rm -f  $(DESTDIR)$(SBINDIR)/ejabberdctl
+	rm -f  $(DESTDIR)$(BINDIR)/iex
+	rm -f  $(DESTDIR)$(BINDIR)/elixir
+	rm -f  $(DESTDIR)$(BINDIR)/mix
+	rm -fr $(DESTDIR)$(DOCDIR)
+	rm -f  $(DESTDIR)$(BEAMDIR)/*.beam
+	rm -f  $(DESTDIR)$(BEAMDIR)/*.app
+	rm -fr $(DESTDIR)$(BEAMDIR)
+	rm -f  $(DESTDIR)$(INCLUDEDIR)/*.hrl
+	rm -fr $(DESTDIR)$(INCLUDEDIR)
+	rm -fr $(DESTDIR)$(PBINDIR)
+	rm -f  $(DESTDIR)$(SODIR)/*.so
+	rm -fr $(DESTDIR)$(SODIR)
+	rm -f  $(DESTDIR)$(MSGSDIR)/*.msg
+	rm -fr $(DESTDIR)$(MSGSDIR)
+	rm -f  $(DESTDIR)$(CSSDIR)/*.css
+	rm -fr $(DESTDIR)$(CSSDIR)
+	rm -f  $(DESTDIR)$(IMGDIR)/*.png
+	rm -fr $(DESTDIR)$(IMGDIR)
+	rm -f  $(DESTDIR)$(JSDIR)/*.js
+	rm -fr $(DESTDIR)$(JSDIR)
+	rm -f  $(DESTDIR)$(SQLDIR)/*.sql
+	rm -fr $(DESTDIR)$(SQLDIR)
+	rm -fr $(DESTDIR)$(LUADIR)/*.lua
+	rm -fr $(DESTDIR)$(LUADIR)
+	rm -fr $(DESTDIR)$(PRIVDIR)
+	rm -fr $(DESTDIR)$(EJABBERDDIR)
+	rm -f  $(DESTDIR)$(MANDIR)/ejabberd.yml.5
+
+uninstall-all: uninstall-binary
+	rm -rf $(DESTDIR)$(ETCDIR)
+	rm -rf $(DESTDIR)$(EJABBERDDIR)
+	rm -rf $(DESTDIR)$(SPOOLDIR)
+	rm -rf $(DESTDIR)$(LOGDIR)
+
+#.
+#' clean
+#
+
+clean:
+	rm -rf $(DEPSDIR)/.got
+	rm -rf $(DEPSDIR)/.built
+	rm -rf test/*.beam
+	rm -f rebar.lock
+	rm -f ejabberdctl.example ejabberd.init ejabberd.service
+	$(REBAR) clean $(CLEANARG)
+
+clean-rel:
+	rm -rf rel/ejabberd
+
+distclean: clean clean-rel
+	rm -f aclocal.m4
+	rm -f config.status
+	rm -f config.log
+	rm -rf autom4te.cache
+	rm -rf $(EBINDIR)
+	rm -rf $(DEPSBASE)
+	rm -rf deps
+	rm -f Makefile
+	rm -f vars.config
+
+#.
+#' releases
+#
+
+rel: prod
+
+prod:
+	$(PREPARE_ELIXIR_SCRIPTS)
+	$(REBARREL)
+
+DEV_CONFIG = _build/dev/rel/ejabberd/conf/ejabberd.yml
+
+dev $(DEV_CONFIG):
+	$(PREPARE_ELIXIR_SCRIPTS)
+	$(REBARDEV)
+
+#.
+#' tags
+#
+
+TAGS:
+	etags src/*.erl
+
+#.
+#' makefile
+#
+
+Makefile: Makefile.in
+
+#.
+#' dialyzer
+#
+
+ifeq "$(REBAR_VER)" "6" # Mix
+dialyzer:
+	MIX_ENV=test $(REBAR) dialyzer
+
+else
+ifeq "$(REBAR_VER)" "3" # Rebar3
+dialyzer:
+	$(REBAR) dialyzer
+
+else # Rebar2
+deps := $(wildcard $(DEPSDIR)/*/ebin)
+
+dialyzer/erlang.plt:
+	@$(MKDIR_P) dialyzer
+	@dialyzer --build_plt --output_plt dialyzer/erlang.plt \
+	-o dialyzer/erlang.log --apps kernel stdlib sasl crypto \
+	public_key ssl mnesia inets odbc compiler erts \
+	os_mon asn1 syntax_tools; \
+	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
+
+dialyzer/deps.plt:
+	@$(MKDIR_P) dialyzer
+	@dialyzer --build_plt --output_plt dialyzer/deps.plt \
+	-o dialyzer/deps.log $(deps); \
+	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
+
+dialyzer/ejabberd.plt:
+	@$(MKDIR_P) dialyzer
+	@dialyzer --build_plt --output_plt dialyzer/ejabberd.plt \
+	-o dialyzer/ejabberd.log ebin; \
+	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
+
+erlang_plt: dialyzer/erlang.plt
+	@dialyzer --plt dialyzer/erlang.plt --check_plt -o dialyzer/erlang.log; \
+	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
+
+deps_plt: dialyzer/deps.plt
+	@dialyzer --plt dialyzer/deps.plt --check_plt -o dialyzer/deps.log; \
+	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
+
+ejabberd_plt: dialyzer/ejabberd.plt
+	@dialyzer --plt dialyzer/ejabberd.plt --check_plt -o dialyzer/ejabberd.log; \
+	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
+
+dialyzer: erlang_plt deps_plt ejabberd_plt
+	@dialyzer --plts dialyzer/*.plt --no_check_plt \
+	--get_warnings -o dialyzer/error.log ebin; \
+	status=$$? ; if [ $$status -ne 2 ]; then exit $$status; else exit 0; fi
+endif
+endif
+
+#.
+#' elvis
+#
+
+elvis:
+	$(REBAR) lint
+
+#.
+#' test
+#
+
+test:
+	@echo "************************** NOTICE ***************************************"
+	@cat test/README
+	@echo "*************************************************************************"
+	@cd priv && ln -sf ../sql
+	$(REBAR) $(SKIPDEPS) ct
+
+.PHONY: test-%
+define test-group-target
+test-$1:
+	$(REBAR) $(SKIPDEPS) ct --suite=test/ejabberd_SUITE --group=$1
+endef
+
+ifneq ($(filter test-%,$(MAKECMDGOALS)),)
+group_to_test := $(patsubst test-%,%,$(filter test-%,$(MAKECMDGOALS)))
+$(eval $(call test-group-target,$(group_to_test)))
+endif
+
+test-eunit:
+	$(REBAR) $(SKIPDEPS) eunit --verbose
+
+#.
+#' phony
+#
+
+.PHONY: src edoc dialyzer Makefile TAGS clean clean-rel distclean prod rel \
+	install uninstall uninstall-binary uninstall-all translations deps test test-eunit \
+	all dev doap help install-rel relive scripts uninstall-rel update \
+	erlang_plt deps_plt ejabberd_plt xref hooks options format indent
+
+#.
+#' help
+#
+
+help:
+	@echo ""
+	@echo "  [all]          "
+	@echo "  scripts        Prepare ejabberd start scripts"
+	@echo "  deps           Get and configure dependencies"
+	@echo "  src            Compile dependencies and ejabberd"
+	@echo "  update         Update dependencies source code"
+	@echo "  clean          Clean binary files"
+	@echo "  distclean      Clean completely the development files"
+	@echo ""
+	@echo "  install        Install ejabberd to /usr/local"
+	@echo "  install-rel    Install ejabberd to /usr/local (using release)"
+	@echo "  uninstall      Uninstall ejabberd (buggy)"
+	@echo "  uninstall-rel  Uninstall ejabberd (using release)"
+	@echo "  uninstall-all  Uninstall also configuration, logs, mnesia... (buggy)"
+	@echo ""
+	@echo "  prod           Build a production release"
+	@echo "  dev            Build a development release"
+	@echo "  relive         Start live using rebar3/mix tools"
+	@echo "  relivectl      Start live using ejabberdctl script"
+	@echo ""
+	@echo "  doap           Generate DOAP file"
+	@echo "  edoc           Generate EDoc documentation [mix]"
+	@echo "  options        Generate ejabberd_option.erl"
+	@echo "  translations   Extract translation files"
+	@echo "  TAGS           Generate tags file for text editors"
+	@echo ""
+	@echo "  format         Format source code using rebar3_format"
+	@echo "  indent         Indent source code using erlang-mode [emacs]"
+	@echo ""
+	@echo "  dialyzer       Run Dialyzer static analyzer"
+	@echo "  elvis          Run Elvis source code style reviewer [rebar3]"
+	@echo "  hooks          Run hooks validator"
+	@echo "  test           Run Common Tests suite [rebar3]"
+	@echo "  test-eunit     Run EUnit suite [rebar3]"
+	@echo "  test-<group>   Run Common Test suite for specific group only [rebar3]"
+	@echo "  xref           Run cross reference analysis [rebar3]"
+
+#.
+#'
+# vim: foldmarker=#',#. foldmethod=marker:
